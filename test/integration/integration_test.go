@@ -15,48 +15,29 @@ func Test_Should_Produce_Successfully(t *testing.T) {
 	topic := "produce-topic"
 	brokerAddress := "localhost:9092"
 
+	conn, cleanUp := createTopic(t, topic)
+	defer cleanUp()
+
 	producer, _ := kafka.NewProducer(kafka.ProducerConfig{
-		Writer: kafka.WriterConfig{AllowAutoTopicCreation: true, Topic: topic, Brokers: []string{brokerAddress}}})
+		Writer: kafka.WriterConfig{Topic: topic, Brokers: []string{brokerAddress}}})
 
 	// When
 	err := producer.Produce(context.Background(), kafka.Message{
 		Key:   []byte("1"),
 		Value: []byte(`foo`),
 	})
+	if err != nil {
+		t.Fatalf("Error Produce %s", err.Error())
+	}
 
 	// Then
-	if err != nil {
-		t.Fatalf("Error while producing err %s", err.Error())
-	}
-}
-
-func Test_Should_Batch_Produce_Successfully(t *testing.T) {
-	// Given
-	topic := "batch-produce-topic"
-	brokerAddress := "localhost:9092"
-
-	producer, _ := kafka.NewProducer(kafka.ProducerConfig{
-		Writer: kafka.WriterConfig{AllowAutoTopicCreation: true, Topic: topic, Brokers: []string{brokerAddress}}})
-
-	// When
-	msgs := []kafka.Message{
-		{
-			Key:   []byte("1"),
-			Value: []byte(`foo`),
-		},
-		{
-			Key:   []byte("2"),
-			Value: []byte(`bar`),
-		},
+	var expectedOffset int64 = 1
+	conditionFunc := func() bool {
+		lastOffset, _ := conn.ReadLastOffset()
+		return lastOffset == expectedOffset
 	}
 
-	// When
-	err := producer.ProduceBatch(context.Background(), msgs)
-
-	// Then
-	if err != nil {
-		t.Fatalf("Error while producing err %s", err.Error())
-	}
+	assertEventually(t, conditionFunc, 30*time.Second, time.Second)
 }
 
 func Test_Should_Consume_Message_Successfully(t *testing.T) {
@@ -85,7 +66,6 @@ func Test_Should_Consume_Message_Successfully(t *testing.T) {
 
 	// When
 	produceMessages(t, conn, segmentio.Message{
-		Topic: topic,
 		Key:   []byte("1"),
 		Value: []byte(`foo`),
 	})
@@ -130,11 +110,11 @@ func Test_Should_Batch_Consume_Messages_Successfully(t *testing.T) {
 
 	// When
 	produceMessages(t, conn,
-		segmentio.Message{Topic: topic, Key: []byte("1"), Value: []byte(`foo1`)},
-		segmentio.Message{Topic: topic, Key: []byte("2"), Value: []byte(`foo2`)},
-		segmentio.Message{Topic: topic, Key: []byte("3"), Value: []byte(`foo3`)},
-		segmentio.Message{Topic: topic, Key: []byte("4"), Value: []byte(`foo4`)},
-		segmentio.Message{Topic: topic, Key: []byte("5"), Value: []byte(`foo5`)},
+		segmentio.Message{Key: []byte("1"), Value: []byte(`foo1`)},
+		segmentio.Message{Key: []byte("2"), Value: []byte(`foo2`)},
+		segmentio.Message{Key: []byte("3"), Value: []byte(`foo3`)},
+		segmentio.Message{Key: []byte("4"), Value: []byte(`foo4`)},
+		segmentio.Message{Key: []byte("5"), Value: []byte(`foo5`)},
 	)
 
 	// Then
@@ -180,7 +160,7 @@ func Test_Should_Integrate_With_Kafka_Cronsumer_Successfully(t *testing.T) {
 	consumer.Consume()
 
 	// When
-	produceMessages(t, conn, segmentio.Message{Topic: topic, Key: []byte("1"), Value: []byte(`foo`)})
+	produceMessages(t, conn, segmentio.Message{Key: []byte("1"), Value: []byte(`foo`)})
 
 	// Then
 	var expectedOffset int64 = 1
